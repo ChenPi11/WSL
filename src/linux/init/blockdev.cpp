@@ -16,8 +16,7 @@
 #include <cstdint>
 #include <arpa/inet.h>
 
-// Network-to-host / host-to-network for 64-bit values (x86 is LE, NBD is big-endian)
-static inline uint64_t Htonll(uint64_t x) { return __builtin_bswap64(x); }
+// Network-to-host for 64-bit values (x86 is LE, NBD is big-endian)
 static inline uint64_t Ntohll(uint64_t x) { return __builtin_bswap64(x); }
 
 std::string SetupBlockDevice(unsigned int VsockPort)
