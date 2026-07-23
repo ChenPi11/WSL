@@ -1,6 +1,7 @@
 set(SOURCES
     main.cpp
     binfmt.cpp
+    blockdev.cpp
     config.cpp
     DnsServer.cpp
     DnsTunnelingChannel.cpp
@@ -26,6 +27,7 @@ set(SOURCES
 set(HEADERS
     ../inc/lxwil.h
     binfmt.h
+    blockdev.h
     common.h
     config.h
     DnsServer.h

@@ -2685,7 +2685,19 @@ Return Value:
                     return;
                 }
 
-                Device = GetLunDevicePath(Message->ScsiLun);
+                if (Message->BlockDevicePort > 0)
+                {
+                    Device = SetupBlockDevice(Message->BlockDevicePort);
+                    if (Device.empty())
+                    {
+                        LOG_ERROR("Failed to set up block device on vsock port {}", Message->BlockDevicePort);
+                        return;
+                    }
+                }
+                else
+                {
+                    Device = GetLunDevicePath(Message->ScsiLun);
+                }
 
                 //
                 // Construct the target of the mount.

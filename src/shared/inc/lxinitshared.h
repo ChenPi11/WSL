@@ -118,6 +118,7 @@ Abstract:
 #define LX_INIT_UTILITY_VM_PLAN9_DRVFS_ADMIN_PORT (50003)
 #define LX_INIT_UTILITY_VM_VIRTIOFS_PORT (50004)
 #define LX_INIT_UTILITY_VM_CRASH_DUMP_PORT (50005)
+#define LX_INIT_UTILITY_VM_BLOCK_DEVICE_PORT (50006)
 
 //
 // HvSocket buffer size for 9p connections.
@@ -413,6 +414,8 @@ typedef enum _LX_MESSAGE_TYPE
     LxMessageWSLCGetGuestCapabilitiesResult,
     LxMessageWSLCListDir,
     LxMessageWSLCListDirResult,
+    LxMiniInitMessageAddBlockDevice,
+    LxMiniInitMessageAddBlockDeviceResponse,
 } LX_MESSAGE_TYPE,
     *PLX_MESSAGE_TYPE;
 
@@ -527,6 +530,8 @@ inline auto ToString(LX_MESSAGE_TYPE messageType)
         X(LxMessageWSLCGetGuestCapabilitiesResult)
         X(LxMessageWSLCListDir)
         X(LxMessageWSLCListDirResult)
+        X(LxMiniInitMessageAddBlockDevice)
+        X(LxMiniInitMessageAddBlockDeviceResponse)
 
     default:
         return "<unexpected LX_MESSAGE_TYPE>";
@@ -1215,6 +1220,7 @@ typedef enum _LX_MINI_INIT_MOUNT_DEVICE_TYPE
     LxMiniInitMountDeviceTypeInvalid = 0,
     LxMiniInitMountDeviceTypeLun = 0x1,
     LxMiniInitMountDeviceTypePmem = 0x2,
+    LxMiniInitMountDeviceTypeBlockProxy = 0x3,
 } LX_MINI_INIT_MOUNT_DEVICE_TYPE,
     *PLX_MINI_INIT_MOUNT_DEVICE_TYPE;
 
@@ -1382,12 +1388,13 @@ typedef struct _LX_MINI_INIT_MOUNT_MESSAGE
     MESSAGE_HEADER Header;
     unsigned int PartitionIndex; // 0 means the disk directly
     unsigned int ScsiLun;
+    unsigned int BlockDevicePort; // vsock port for block device proxy, 0 = not used
     unsigned int TypeOffset;
     unsigned int TargetNameOffset;
     unsigned int OptionsOffset;
     char Buffer[];
 
-    PRETTY_PRINT(FIELD(Header), FIELD(PartitionIndex), FIELD(ScsiLun), STRING_FIELD(TypeOffset), STRING_FIELD(TargetNameOffset), STRING_FIELD(OptionsOffset));
+    PRETTY_PRINT(FIELD(Header), FIELD(PartitionIndex), FIELD(ScsiLun), FIELD(BlockDevicePort), STRING_FIELD(TypeOffset), STRING_FIELD(TargetNameOffset), STRING_FIELD(OptionsOffset));
 
 } LX_MINI_INIT_MOUNT_MESSAGE, *PLX_MINI_INIT_MOUNT_MESSAGE;
 
@@ -1532,6 +1539,47 @@ struct EJECT_VHD_MESSAGE
 
     PRETTY_PRINT(FIELD(Header), FIELD(Lun));
 };
+
+struct BLOCK_DEVICE_REQUEST
+{
+    uint32_t Type;     // 0=READ, 1=WRITE, 2=GET_SIZE, 3=FLUSH
+    uint64_t Offset;   // byte offset
+    uint32_t Length;   // bytes to read/write
+    uint32_t _Padding;
+};
+
+struct BLOCK_DEVICE_RESPONSE
+{
+    uint32_t Status;   // 0=OK, 1=ERROR
+    uint32_t Length;   // data length (for reads)
+    uint64_t DeviceSize;   // valid for GET_SIZE
+    uint32_t SectorSize;   // valid for GET_SIZE
+};
+
+typedef struct _LX_MINI_INIT_ADD_BLOCK_DEVICE_MESSAGE
+{
+    static inline auto Type = LxMiniInitMessageAddBlockDevice;
+    using TResponse = RESULT_MESSAGE<int32_t>;
+
+    MESSAGE_HEADER Header;
+    uint64_t DeviceSize;     // size in bytes
+    uint32_t SectorSize;     // typically 512
+    bool ReadOnly;
+
+    PRETTY_PRINT(FIELD(Header), FIELD(DeviceSize), FIELD(SectorSize), FIELD(ReadOnly));
+} LX_MINI_INIT_ADD_BLOCK_DEVICE_MESSAGE, *PLX_MINI_INIT_ADD_BLOCK_DEVICE_MESSAGE;
+
+using PCLX_MINI_INIT_ADD_BLOCK_DEVICE_MESSAGE = const LX_MINI_INIT_ADD_BLOCK_DEVICE_MESSAGE*;
+
+typedef struct _LX_MINI_INIT_ADD_BLOCK_DEVICE_RESPONSE
+{
+    static inline auto Type = LxMiniInitMessageAddBlockDeviceResponse;
+
+    MESSAGE_HEADER Header;
+    int Result;
+
+    PRETTY_PRINT(FIELD(Header), FIELD(Result));
+} LX_MINI_INIT_ADD_BLOCK_DEVICE_RESPONSE, *PLX_MINI_INIT_ADD_BLOCK_DEVICE_RESPONSE;
 
 typedef enum _LX_MINI_CREATE_INSTANCE_STEP
 {

@@ -17,6 +17,7 @@ Abstract:
 #include "WslCoreNetworkingSupport.h"
 #include <lxfsshares.h>
 #include "disk.hpp"
+#include "BlockDeviceProxy.h"
 #include "WslCoreInstance.h"
 #include "NatNetworking.h"
 #include "BridgedNetworking.h"
@@ -1978,6 +1979,55 @@ bool WslCoreVm::IsVhdAttached(_In_ PCWSTR VhdPath)
     return m_attachedDisks.contains({DiskType::VHD, VhdPath});
 }
 
+bool WslCoreVm::StartBlockDeviceProxy(_In_ PCWSTR Disk, _In_ ULONG PartitionIndex)
+{
+    // Compute the partition path from the disk path and partition index
+    // e.g., "\\.\PHYSICALDRIVE0" + partition 3 → "\\.\Harddisk0Partition3"
+    std::wstring diskPath(Disk);
+    std::wstring partitionPath;
+
+    // Extract disk number from \\.\PHYSICALDRIVEN format
+    constexpr PCWSTR c_physicalDrivePrefix = L"\\\\.\\PHYSICALDRIVE";
+    if (diskPath.compare(0, wcslen(c_physicalDrivePrefix), c_physicalDrivePrefix) == 0)
+    {
+        auto diskNumStr = diskPath.substr(wcslen(c_physicalDrivePrefix));
+        partitionPath = std::format(L"\\\\?\\Harddisk{}Partition{}", diskNumStr, PartitionIndex);
+    }
+    else
+    {
+        // Try to use as-is (might be a partition path already)
+        partitionPath = diskPath;
+    }
+
+    LOG_INFO("Starting block device proxy for partition: {}", partitionPath);
+
+    try
+    {
+        m_blockDeviceServer = std::make_unique<wsl::windows::common::blockdevice::BlockDeviceServer>();
+        m_blockDeviceServer->Start(m_runtimeId, partitionPath, true);
+        m_blockDevicePartitionPath = partitionPath;
+        m_blockDeviceActive = true;
+        return true;
+    }
+    catch (...)
+    {
+        LOG_CAUGHT_EXCEPTION();
+        m_blockDeviceActive = false;
+        return false;
+    }
+}
+
+void WslCoreVm::StopBlockDeviceProxy()
+{
+    if (m_blockDeviceServer)
+    {
+        m_blockDeviceServer->Stop();
+        m_blockDeviceServer.reset();
+    }
+    m_blockDeviceActive = false;
+    m_blockDevicePartitionPath.clear();
+}
+
 WslCoreVm::DiskMountResult WslCoreVm::MountDisk(
     _In_ PCWSTR Disk, _In_ DiskType MountDiskType, _In_ ULONG PartitionIndex, _In_opt_ PCWSTR Name, _In_opt_ PCWSTR Type, _In_opt_ PCWSTR Options)
 {
@@ -1988,6 +2038,62 @@ WslCoreVm::DiskMountResult WslCoreVm::MountDisk(
 WslCoreVm::DiskMountResult WslCoreVm::MountDiskLockHeld(
     _In_ PCWSTR Disk, _In_ DiskType MountDiskType, _In_ ULONG PartitionIndex, _In_opt_ PCWSTR Name, _In_opt_ PCWSTR Type, _In_opt_ PCWSTR Options)
 {
+    // Check if we should use block device proxy for this mount
+    const bool useBlockProxy = (MountDiskType == DiskType::PassThrough) && PartitionIndex > 0;
+
+    if (useBlockProxy)
+    {
+        // Start the block device proxy
+        if (!StartBlockDeviceProxy(Disk, PartitionIndex))
+        {
+            THROW_HR(HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_AVAILABLE));
+        }
+
+        // Set up scope exit to stop the proxy
+        auto stopProxy = wil::scope_exit([&]() { StopBlockDeviceProxy(); });
+
+        // Get the name for the mountpoint
+        auto targetName = s_GetMountTargetName(Disk, Name, PartitionIndex);
+        auto targetNameWide = wsl::shared::string::MultiByteToWide(targetName);
+        // For each attachedDisk pair
+        const auto nameCollision = std::any_of(m_attachedDisks.begin(), m_attachedDisks.end(), [&](const auto& diskEntry) {
+            // Check if the targetName matches the name of any Mount already present
+            return (std::any_of(diskEntry.second.Mounts.begin(), diskEntry.second.Mounts.end(), [&](const auto& mountEntry) {
+                return wsl::shared::string::IsEqual(mountEntry.second.Name, targetNameWide, false);
+            }));
+        });
+
+        // Throw error if the specified name was already used
+        THROW_HR_IF(WSL_E_VM_MODE_MOUNT_NAME_ALREADY_EXISTS, nameCollision);
+
+        wsl::shared::MessageWriter<LX_MINI_INIT_MOUNT_MESSAGE> message(LxMiniInitMessageMount);
+        message->PartitionIndex = 0; // The block device IS the partition
+        message->ScsiLun = 0;
+        message->BlockDevicePort = LX_INIT_UTILITY_VM_BLOCK_DEVICE_PORT;
+        message.WriteString(message->TypeOffset, Type);
+        message.WriteString(message->TargetNameOffset, targetName);
+        message.WriteString(message->OptionsOffset, Options);
+
+        // Send the message.
+        auto transaction = m_miniInitChannel.StartTransaction();
+        transaction.Send<LX_MINI_INIT_MOUNT_MESSAGE>(message.Span());
+
+        // Accept a connection from mini_init
+        wsl::shared::SocketChannel channel{AcceptConnection(m_vmConfig.KernelBootTimeout), "MountResult", {m_terminatingEvent.get()}};
+
+        // Get the mount result from mini_init
+        auto [mountResult, step] = GetMountResult(channel);
+
+        stopProxy.release();
+        if (mountResult != 0)
+        {
+            StopBlockDeviceProxy();
+        }
+
+        return {std::move(targetName), mountResult, step};
+    }
+
+    // Normal SCSI-based mount flow
     const auto it = m_attachedDisks.find({MountDiskType, Disk});
     THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND), (it == m_attachedDisks.end()));
     THROW_HR_IF(WSL_E_DISK_ALREADY_MOUNTED, it->second.Mounts.find(PartitionIndex) != it->second.Mounts.end());
@@ -2009,6 +2115,7 @@ WslCoreVm::DiskMountResult WslCoreVm::MountDiskLockHeld(
     wsl::shared::MessageWriter<LX_MINI_INIT_MOUNT_MESSAGE> message(LxMiniInitMessageMount);
     message->PartitionIndex = PartitionIndex;
     message->ScsiLun = it->second.Lun;
+    message->BlockDevicePort = 0; // Not using block device proxy
     message.WriteString(message->TypeOffset, Type);
     message.WriteString(message->TargetNameOffset, targetName);
     message.WriteString(message->OptionsOffset, Options);

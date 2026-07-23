@@ -1,5 +1,6 @@
 set(SOURCES
     APICompat.cpp
+    BlockDeviceProxy.cpp
     ConsoleProgressBar.cpp
     ConsoleProgressIndicator.cpp
     ConsoleState.cpp
@@ -85,6 +86,7 @@ set(HEADERS
     ../../shared/inc/SocketChannel.h
     ../../shared/inc/socketshared.h
     ../../shared/inc/stringshared.h
+    BlockDeviceProxy.h
     ConsoleProgressBar.h
     ConsoleProgressIndicator.h
     ConsoleState.h

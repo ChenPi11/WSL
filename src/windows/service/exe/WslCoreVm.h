@@ -22,6 +22,7 @@ Abstract:
 #include "Dmesg.h"
 #include "GuestTelemetryLogger.h"
 #include "WslCoreConfig.h"
+#include "BlockDeviceProxy.h"
 #include "LxssCreateProcess.h"
 #include "WslCoreNetworkEndpointSettings.h"
 #include "WslSecurity.h"
@@ -228,6 +229,9 @@ private:
     DiskMountResult MountDiskLockHeld(
         _In_ PCWSTR Disk, _In_ DiskType MountDiskType, _In_ ULONG PartitionIndex, _In_opt_ PCWSTR Name, _In_opt_ PCWSTR Type, _In_opt_ PCWSTR Options);
 
+    bool StartBlockDeviceProxy(_In_ PCWSTR Disk, _In_ ULONG PartitionIndex);
+    void StopBlockDeviceProxy();
+
     void WaitForPmemDeviceInVm(_In_ ULONG PmemId);
 
     void OnCrash(_In_ LPCWSTR Details);
@@ -330,6 +334,11 @@ private:
     // Job object that terminates child processes (wslhost.exe, wslrelay.exe)
     // when the VM shuts down.
     wil::unique_handle m_processJobObject;
+
+    // Block device proxy for partition-level mounting
+    std::unique_ptr<wsl::windows::common::blockdevice::BlockDeviceServer> m_blockDeviceServer;
+    _Guarded_by_(m_lock) std::wstring m_blockDevicePartitionPath;
+    _Guarded_by_(m_lock) bool m_blockDeviceActive = false;
 };
 
 DEFINE_ENUM_FLAG_OPERATORS(WslCoreVm::DiskStateFlags);
