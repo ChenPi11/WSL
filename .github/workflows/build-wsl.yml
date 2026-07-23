@@ -97,24 +97,9 @@ jobs:
         shell: pwsh
         run: cmake . --fresh -A ${{ inputs.platform }} -DCMAKE_BUILD_TYPE=${{ inputs.configuration }} -DCMAKE_SYSTEM_VERSION=10.0.26100.0 -DSKIP_PACKAGE_SIGNING=${{ inputs.skip_sign }} "-DPACKAGE_VERSION=${{ steps.version.outputs.WSL_PACKAGE_VERSION }}"
 
-      - name: Build primary targets
+      - name: Build
         shell: pwsh
-        run: |
-          cmake --build . --config ${{ inputs.configuration }} `
-            --target "wsl;libwsl;wslg;wslservice;wslhost;wslrelay;wslinstaller;wslinstall;initramfs;wslserviceproxystub;wslinstallerproxystub;wslcsession;wslc;wslcsdk;wsltests" `
-            -- -m
-
-      - name: Build package targets
-        shell: pwsh
-        run: |
-          cmake --build . --config ${{ inputs.configuration }} `
-            --target "msixgluepackage;msipackage" `
-            -- -m
-
-      - name: Build remaining targets
-        shell: pwsh
-        run: |
-          cmake --build . --config ${{ inputs.configuration }} -- -m
+        run: cmake --build . --config ${{ inputs.configuration }} -- -m
 
       - name: Collect artifacts
         shell: pwsh
