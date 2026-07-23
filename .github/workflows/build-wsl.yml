@@ -88,8 +88,8 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $date = Get-Date -Format "yyyyMMdd"
-          $ver = "2.4.$date.0"
+          $rev = git rev-list --count HEAD
+          $ver = "2.4.$rev.0"
           Write-Host "WSL_PACKAGE_VERSION=$ver"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "WSL_PACKAGE_VERSION=$ver"
 
