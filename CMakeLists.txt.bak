@@ -98,7 +98,7 @@ string(REPLACE "." "_" BOOST_TARBALL "${BOOST_TARBALL}")
 
 FetchContent_Declare(
   boost_headers
-  URL ${CMAKE_CURRENT_SOURCE_DIR}/${BOOST_TARBALL}.tar.gz
+  URL https://archives.boost.io/release/${BOOST_VERSION}/source/${BOOST_TARBALL}.tar.gz
   URL_HASH SHA256=5e93d582aff26868d581a52ae78c7d8edf3f3064742c6e77901a1f18a437eea9
 )
 
@@ -312,7 +312,7 @@ if (${WSL_BUILD_THIN_PACKAGE})
 endif ()
 
 string(REPLACE "/Zi" "" CMAKE_CXX_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_DEBUG})  # make sure /Zi is removed from the debug flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj /W3 /WX /wd4819 /ZH:SHA_256")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj /W3 /WX /ZH:SHA_256")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Z7 -DDEBUG -DDBG")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi /guard:cf /Qspectre")
 
@@ -371,7 +371,7 @@ endif()
 # Prefer VS2022 to keep local clang-format output aligned with pipeline expectations.
 function(find_vs_install_dir VERSION_RANGE OUTPUT_VAR)
     execute_process(
-        COMMAND "${VSWHERE_SOURCE_DIR}/vswhere.exe" -version "${VERSION_RANGE}" -products * -property installationPath -prerelease -latest
+        COMMAND "${VSWHERE_SOURCE_DIR}/vswhere.exe" -version "${VERSION_RANGE}" -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath -prerelease -latest
         OUTPUT_VARIABLE _vs_install_dir
         OUTPUT_STRIP_TRAILING_WHITESPACE
         COMMAND_ERROR_IS_FATAL ANY
@@ -404,7 +404,7 @@ else()
 endif()
 
 if (NOT EXISTS ${LLVM_INSTALL_DIR})
-    message(WARNING "C++ Clang Compiler for Windows is not installed at ${LLVM_INSTALL_DIR}. Linux components will not be built.")
+    message(FATAL_ERROR "C++ Clang Compiler for Windows is not installed at ${LLVM_INSTALL_DIR}. Please install it from the Visual Studio Installer.")
 endif()
 
 # Generate the clang-format script which contains a path to clang-format.exe
@@ -510,7 +510,6 @@ include_directories(${WSLDEPS_SOURCE_DIR}/include/schemas)
 include_directories(${WSLDEPS_SOURCE_DIR}/include/lxcore)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/shared/inc)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/windows/inc)
-include_directories(${CMAKE_CURRENT_BINARY_DIR}/src/windows/wsldevicehoststub/inc/${TARGET_PLATFORM}/${CMAKE_BUILD_TYPE})
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/src/windows/service/inc/${TARGET_PLATFORM}/${CMAKE_BUILD_TYPE})
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/src/windows/wslinstaller/inc/${TARGET_PLATFORM}/${CMAKE_BUILD_TYPE})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/linux/init/inc)
@@ -535,10 +534,8 @@ add_subdirectory(nuget)
 add_subdirectory(msixgluepackage)
 add_subdirectory(msipackage)
 add_subdirectory(msixinstaller)
-add_subdirectory(src/windows/wsldevicehoststub/inc)
 add_subdirectory(src/windows/common)
 add_subdirectory(src/windows/service)
-add_subdirectory(src/windows/wsldevicehoststub)
 add_subdirectory(src/windows/wslcsession)
 add_subdirectory(src/windows/wslinstaller/inc)
 add_subdirectory(src/windows/wslinstaller/stub)

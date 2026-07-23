@@ -1020,17 +1020,11 @@ ULONG WslCoreVm::AttachDiskLockHeld(
             GrantVmWorkerProcessAccessToDisk(Disk, UserToken);
             WI_SetFlag(diskFlags, DiskStateFlags::AccessGranted);
 
-            // Set the disk online if needed.
-            //
-            // N.B. The disk handle must be closed prior to adding the disk to the VM.
+            // Bypass disk locking: skip SetOnline to avoid locking the disk.
             {
                 const auto diskHandle =
                     wsl::windows::common::disk::OpenDevice(Disk, GENERIC_READ | GENERIC_WRITE, m_vmConfig.MountDeviceTimeout);
-                if (wsl::windows::common::disk::IsDiskOnline(diskHandle.get()))
-                {
-                    wsl::windows::common::disk::SetOnline(diskHandle.get(), false, m_vmConfig.MountDeviceTimeout);
-                    WI_SetFlag(diskFlags, DiskStateFlags::Online);
-                }
+                THROW_LAST_ERROR_IF(!diskHandle);
             }
 
             // Add the disk to the VM.

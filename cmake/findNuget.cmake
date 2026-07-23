@@ -8,11 +8,13 @@ endfunction()
 
 function (restore_nuget_packages)
 
-    # Fetch nuget.exe
-    FILE(DOWNLOAD
-        https://dist.nuget.org/win-x86-commandline/v5.10.0/nuget.exe
-        ${CMAKE_BINARY_DIR}/_deps/nuget.exe
-        EXPECTED_HASH SHA256=852b71cc8c8c2d40d09ea49d321ff56fd2397b9d6ea9f96e532530307bbbafd3)
+    # Fetch nuget.exe (skip if already exists)
+    if (NOT EXISTS ${CMAKE_BINARY_DIR}/_deps/nuget.exe)
+        FILE(DOWNLOAD
+            https://dist.nuget.org/win-x86-commandline/v5.10.0/nuget.exe
+            ${CMAKE_BINARY_DIR}/_deps/nuget.exe
+            EXPECTED_HASH SHA256=852b71cc8c8c2d40d09ea49d321ff56fd2397b9d6ea9f96e532530307bbbafd3)
+    endif()
 
     set_property(
         DIRECTORY

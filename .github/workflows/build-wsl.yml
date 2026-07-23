@@ -1,0 +1,162 @@
+name: Build WSL
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: Build configuration
+        default: Release
+        type: choice
+        options:
+          - Debug
+          - Release
+      platform:
+        description: Target architecture
+        default: x64
+        type: choice
+        options:
+          - x64
+          - arm64
+      skip_sign:
+        description: Skip package signing (use dev cert)
+        default: true
+        type: boolean
+
+concurrency:
+  group: wsl-build-${{ inputs.platform }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build WSL (${{ inputs.platform }}, ${{ inputs.configuration }})
+    runs-on: [self-hosted, windows, wsl-builder]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check prerequisites
+        shell: pwsh
+        run: |
+          $errors = @()
+
+          $cmake = Get-Command cmake -ErrorAction SilentlyContinue
+          if (-not $cmake) { $errors += "CMake not found" }
+          else {
+            $ver = cmake --version | Select-String -Pattern "(\d+\.\d+\.\d+)" | ForEach-Object { $_.Matches.Groups[1].Value }
+            Write-Host "CMake: $ver"
+          }
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -version "[17.0,19.0)" -property installationPath -latest -prerelease 2>$null
+          if (-not $vsPath) { $errors += "VS 2022+ not found" }
+          else { Write-Host "VS: $vsPath" }
+
+          $sdks = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots\*" -ErrorAction SilentlyContinue
+          $win10Sdk = $sdks | Where-Object { (Get-ItemProperty $_.PSPath).KitsRoot10 }
+          if (-not $win10Sdk) { $errors += "Windows SDK not found" }
+          else { Write-Host "Windows SDK: $((Get-ItemProperty $win10Sdk.PSPath).KitsRoot10)" }
+
+          if ($errors.Count -gt 0) {
+            Write-Host "::warning title=Missing prerequisites::$($errors -join '; ')`nRun tools/setup-dev-env.ps1 to install."
+          }
+
+      - name: Apply custom dev config (optional)
+        shell: pwsh
+        run: |
+          $userCfg = "UserConfig.cmake"
+          if (-not (Test-Path $userCfg)) {
+            Copy-Item "UserConfig.cmake.sample" $userCfg
+            Write-Host "Created $userCfg from sample"
+          }
+
+      - name: Compute version
+        id: version
+        shell: pwsh
+        run: |
+          $gitversion = (Select-Xml -Path packages.config -XPath '/packages/package[@id="GitVersion.CommandLine"]/@version').Node.Value
+          $env:path = "$pwd/packages/GitVersion.CommandLine.$gitversion/tools;$env:path"
+          $commit = git rev-parse --short HEAD
+          $date = Get-Date -Format "yyyyMMdd"
+          $ver = "2.4.$date.0"
+          Write-Host "Package version: $ver"
+          echo "WSL_PACKAGE_VERSION=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: CMake configure
+        shell: pwsh
+        run: |
+          cmake . --fresh `
+            -A ${{ inputs.platform }} `
+            -DCMAKE_BUILD_TYPE=${{ inputs.configuration }} `
+            -DSKIP_PACKAGE_SIGNING=${{ inputs.skip_sign }} `
+            -DPACKAGE_VERSION=${{ steps.version.outputs.WSL_PACKAGE_VERSION }}
+
+      - name: Build primary targets
+        shell: pwsh
+        run: |
+          cmake --build . --config ${{ inputs.configuration }} `
+            --target "wsl;libwsl;wslg;wslservice;wslhost;wslrelay;wslinstaller;wslinstall;initramfs;wslserviceproxystub;wslinstallerproxystub;wslcsession;wslc;wslcsdk;wsltests" `
+            -- -m
+
+      - name: Build package targets
+        shell: pwsh
+        run: |
+          cmake --build . --config ${{ inputs.configuration }} `
+            --target "msixgluepackage;msipackage" `
+            -- -m
+
+      - name: Build remaining targets
+        shell: pwsh
+        run: |
+          cmake --build . --config ${{ inputs.configuration }} -- -m
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          $bin = "bin/${{ inputs.platform }}/${{ inputs.configuration }}"
+          $staging = "${{ runner.temp }}/artifacts"
+
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
+
+          $artifacts = @(
+            "wsl.msi", "installer.msix", "gluepackage.msix",
+            "wsl.exe", "wslg.exe", "wslservice.exe",
+            "wslhost.exe", "wslrelay.exe", "wslinstaller.exe",
+            "wslc.exe", "wslcsession.exe",
+            "libwsl.dll", "wslinstall.dll",
+            "wslserviceproxystub.dll", "wslinstallerproxystub.dll",
+            "wslcsdk.dll", "wslcsdkcs.dll", "wslcsdk.lib",
+            "Microsoft.WSL.Containers.winmd",
+            "kernel", "initramfs.cpio.gz"
+          )
+
+          foreach ($file in $artifacts) {
+            $src = Join-Path $bin $file
+            if (Test-Path $src) {
+              Copy-Item -Path $src -Destination $staging -Force
+              Write-Host "Collected: $file"
+            } else {
+              Write-Host "Not found (skipped): $file"
+            }
+          }
+
+          echo "artifact_dir=$staging" >> $env:GITHUB_OUTPUT
+        id: collect
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsl-${{ inputs.platform }}-${{ inputs.configuration }}-${{ steps.version.outputs.WSL_PACKAGE_VERSION }}
+          path: ${{ steps.collect.outputs.artifact_dir }}
+
+      - name: Upload full build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsl-${{ inputs.platform }}-${{ inputs.configuration }}-full
+          path: |
+            bin/${{ inputs.platform }}/${{ inputs.configuration }}/
+            !bin/${{ inputs.platform }}/${{ inputs.configuration }}/**/*.pdb
+            !bin/${{ inputs.platform }}/${{ inputs.configuration }}/**/*.ilk
+            !bin/${{ inputs.platform }}/${{ inputs.configuration }}/**/*.exp
