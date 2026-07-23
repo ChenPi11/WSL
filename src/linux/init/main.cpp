@@ -61,6 +61,7 @@ Abstract:
 #include "mountutilcpp.h"
 #include "message.h"
 #include "binfmt.h"
+#include "blockdev.h"
 #include "address.h"
 #include "SocketChannel.h"
 

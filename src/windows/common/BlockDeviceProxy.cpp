@@ -185,6 +185,9 @@ void PhysicalBlockDevice::QueryDeviceSize()
     }
     else
     {
+        // PARTITION_INFORMATION_EX does not include sector size, so use default.
+        // The primary path (IOCTL_DISK_GET_DRIVE_GEOMETRY_EX) above covers normal
+        // disk/partition devices. This fallback is for raw files or unusual setup.
         PARTITION_INFORMATION_EX partInfo = {};
         if (DeviceIoControl(
                 m_handle.get(),
@@ -197,7 +200,6 @@ void PhysicalBlockDevice::QueryDeviceSize()
                 nullptr))
         {
             m_deviceSize = partInfo.PartitionLength.QuadPart;
-            m_sectorSize = partInfo.BytesPerSector > 0 ? partInfo.BytesPerSector : 512;
         }
         else
         {
