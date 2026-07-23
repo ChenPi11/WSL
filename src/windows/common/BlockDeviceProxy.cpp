@@ -129,7 +129,7 @@ void PhysicalBlockDevice::Open(const std::wstring& Path, bool Writable)
 
 void PhysicalBlockDevice::Close()
 {
-    if (m_handle)
+    if (m_handle.is_valid())
     {
         m_handle.reset();
     }

@@ -32,7 +32,7 @@ public:
 
     uint64_t GetSize() const { return m_deviceSize; }
     uint32_t GetSectorSize() const { return m_sectorSize; }
-    bool IsOpen() const { return m_handle != nullptr; }
+    bool IsOpen() const { return m_handle.is_valid(); }
 
 private:
     void QueryDeviceSize();
