@@ -63,6 +63,18 @@ jobs:
             Write-Host "::warning title=Missing prerequisites::$($errors -join '; ')`nRun tools/setup-dev-env.ps1 to install."
           }
 
+      - name: Download boost (required by CMake FetchContent)
+        shell: pwsh
+        run: |
+          $tarball = "boost_1_90_0.tar.gz"
+          if (-not (Test-Path $tarball)) {
+            Write-Host "Downloading $tarball (180 MB)..."
+            Invoke-WebRequest -Uri "https://archives.boost.io/release/1.90.0/source/$tarball" -OutFile $tarball -UseBasicParsing
+            Write-Host "Downloaded $tarball"
+          } else {
+            Write-Host "boost tarball already present"
+          }
+
       - name: Apply custom dev config (optional)
         shell: pwsh
         run: |
@@ -90,6 +102,7 @@ jobs:
           cmake . --fresh `
             -A ${{ inputs.platform }} `
             -DCMAKE_BUILD_TYPE=${{ inputs.configuration }} `
+            -DCMAKE_SYSTEM_VERSION=10.0.26100.0 `
             -DSKIP_PACKAGE_SIGNING=${{ inputs.skip_sign }} `
             -DPACKAGE_VERSION=${{ steps.version.outputs.WSL_PACKAGE_VERSION }}
 
