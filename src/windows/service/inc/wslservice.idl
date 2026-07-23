@@ -134,6 +134,7 @@ cpp_quote("#define LXSS_IMPORT_DISTRO_FLAGS_ALL (LXSS_IMPORT_DISTRO_FLAGS_VHD | 
 
 cpp_quote("#define LXSS_ATTACH_MOUNT_FLAGS_PASS_THROUGH 0x1")
 cpp_quote("#define LXSS_ATTACH_MOUNT_FLAGS_VHD 0x2")
+cpp_quote("#define LXSS_ATTACH_MOUNT_FLAGS_BARE 0x4")
 
 cpp_quote("#define LXSS_PLAN9_UNIX_SOCKET_A \"fsserver\"")
 cpp_quote("#define LXSS_PLAN9_UNIX_SOCKET L\"fsserver\"")

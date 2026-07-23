@@ -988,25 +988,41 @@ int Mount(_In_ std::wstring_view commandLine)
         WI_SetFlag(flags, LXSS_ATTACH_MOUNT_FLAGS_PASS_THROUGH);
     }
 
-    // First attach the disk to the vm
-    wsl::windows::common::SvcComm service;
-    const auto result = service.AttachDisk(disk.c_str(), flags);
-    if (FAILED(result))
-    {
-        THROW_HR_IF(result, bare);
+    // Determine if block device proxy can handle this mount without HCS passthrough
+    const bool useBlockProxy = !vhd && partition > 0;
 
-        // In the case of a non-bare mount, WSL_E_DISK_ALREADY_ATTACHED and LXSS_E_USER_VHD_ALREADY_ATTACHED are
-        // ok to ignore because the user can mount more than one partition on the same disk
-        // (so that disk might be already attached).
-        THROW_HR_IF(result, result != WSL_E_DISK_ALREADY_ATTACHED && result != WSL_E_USER_VHD_ALREADY_ATTACHED);
+    wsl::windows::common::SvcComm service;
+
+    // For partition-level physical disk mounts, skip HCS AttachDisk entirely.
+    // The block device proxy opens the partition directly with FILE_SHARE_READ|WRITE,
+    // bypassing the need for AddPassThroughDisk (which requires the disk to be offline).
+    if (!useBlockProxy)
+    {
+        const auto result = service.AttachDisk(disk.c_str(), flags);
+        if (FAILED(result))
+        {
+            THROW_HR_IF(result, bare);
+
+            // In the case of a non-bare mount, WSL_E_DISK_ALREADY_ATTACHED and LXSS_E_USER_VHD_ALREADY_ATTACHED are
+            // ok to ignore because the user can mount more than one partition on the same disk
+            // (so that disk might be already attached).
+            THROW_HR_IF(result, result != WSL_E_DISK_ALREADY_ATTACHED && result != WSL_E_USER_VHD_ALREADY_ATTACHED);
+        }
     }
 
-    // Perform the mount
-    if (!bare)
+    // For block proxy mounts, always call MountDisk (even with --bare) so the
+    // block device server is started and the Linux init sets up /dev/nbdX.
+    if (!bare || useBlockProxy)
     {
+        ULONG mountFlags = flags;
+        if (bare && useBlockProxy)
+        {
+            WI_SetFlag(mountFlags, LXSS_ATTACH_MOUNT_FLAGS_BARE);
+        }
+
         const auto mountResult = service.MountDisk(
             disk.c_str(),
-            flags,
+            mountFlags,
             partition,
             name.has_value() ? name->c_str() : nullptr,
             type.has_value() ? type->c_str() : nullptr,
@@ -1020,8 +1036,15 @@ int Mount(_In_ std::wstring_view commandLine)
         }
         else
         {
-            wsl::windows::common::wslutil::PrintMessage(
-                Localization::MessageDiskMounted(mountResult.MountName.get(), WSL_UNMOUNT_ARG, disk), stdout);
+            if (!bare)
+            {
+                wsl::windows::common::wslutil::PrintMessage(
+                    Localization::MessageDiskMounted(mountResult.MountName.get(), WSL_UNMOUNT_ARG, disk), stdout);
+            }
+            else
+            {
+                wsl::windows::common::wslutil::PrintSystemError(ERROR_SUCCESS);
+            }
         }
     }
     else

@@ -2029,14 +2029,14 @@ void WslCoreVm::StopBlockDeviceProxy()
 }
 
 WslCoreVm::DiskMountResult WslCoreVm::MountDisk(
-    _In_ PCWSTR Disk, _In_ DiskType MountDiskType, _In_ ULONG PartitionIndex, _In_opt_ PCWSTR Name, _In_opt_ PCWSTR Type, _In_opt_ PCWSTR Options)
+    _In_ PCWSTR Disk, _In_ DiskType MountDiskType, _In_ ULONG PartitionIndex, _In_opt_ PCWSTR Name, _In_opt_ PCWSTR Type, _In_opt_ PCWSTR Options, bool Bare)
 {
     auto lock = m_lock.lock_exclusive();
-    return MountDiskLockHeld(Disk, MountDiskType, PartitionIndex, Name, Type, Options);
+    return MountDiskLockHeld(Disk, MountDiskType, PartitionIndex, Name, Type, Options, Bare);
 }
 
 WslCoreVm::DiskMountResult WslCoreVm::MountDiskLockHeld(
-    _In_ PCWSTR Disk, _In_ DiskType MountDiskType, _In_ ULONG PartitionIndex, _In_opt_ PCWSTR Name, _In_opt_ PCWSTR Type, _In_opt_ PCWSTR Options)
+    _In_ PCWSTR Disk, _In_ DiskType MountDiskType, _In_ ULONG PartitionIndex, _In_opt_ PCWSTR Name, _In_opt_ PCWSTR Type, _In_opt_ PCWSTR Options, bool Bare)
 {
     // Check if we should use block device proxy for this mount
     const bool useBlockProxy = (MountDiskType == DiskType::PassThrough) && PartitionIndex > 0;
@@ -2070,6 +2070,7 @@ WslCoreVm::DiskMountResult WslCoreVm::MountDiskLockHeld(
         message->PartitionIndex = 0; // The block device IS the partition
         message->ScsiLun = 0;
         message->BlockDevicePort = LX_INIT_UTILITY_VM_BLOCK_DEVICE_PORT;
+        message->Flags = Bare ? LxMiniInitMessageFlagBareMount : 0;
         message.WriteString(message->TypeOffset, Type);
         message.WriteString(message->TargetNameOffset, targetName);
         message.WriteString(message->OptionsOffset, Options);

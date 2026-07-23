@@ -1212,6 +1212,7 @@ typedef enum _LX_MINI_INIT_MESSAGE_FLAGS
     LxMiniInitMessageFlagExportCompressGzip = 0x8,
     LxMiniInitMessageFlagExportCompressXzip = 0x10,
     LxMiniInitMessageFlagVerbose = 0x20,
+    LxMiniInitMessageFlagBareMount = 0x40, // Set up block device without mounting
 } LX_MINI_INIT_MESSAGE_FLAGS,
     *PLX_MINI_INIT_MESSAGE_FLAGS;
 
@@ -1389,12 +1390,13 @@ typedef struct _LX_MINI_INIT_MOUNT_MESSAGE
     unsigned int PartitionIndex; // 0 means the disk directly
     unsigned int ScsiLun;
     unsigned int BlockDevicePort; // vsock port for block device proxy, 0 = not used
+    unsigned int Flags;           // LxMiniInitMessageFlag* flags
     unsigned int TypeOffset;
     unsigned int TargetNameOffset;
     unsigned int OptionsOffset;
     char Buffer[];
 
-    PRETTY_PRINT(FIELD(Header), FIELD(PartitionIndex), FIELD(ScsiLun), FIELD(BlockDevicePort), STRING_FIELD(TypeOffset), STRING_FIELD(TargetNameOffset), STRING_FIELD(OptionsOffset));
+    PRETTY_PRINT(FIELD(Header), FIELD(PartitionIndex), FIELD(ScsiLun), FIELD(BlockDevicePort), FIELD(Flags), STRING_FIELD(TypeOffset), STRING_FIELD(TargetNameOffset), STRING_FIELD(OptionsOffset));
 
 } LX_MINI_INIT_MOUNT_MESSAGE, *PLX_MINI_INIT_MOUNT_MESSAGE;
 

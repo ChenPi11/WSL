@@ -103,7 +103,7 @@ public:
     bool IsVhdAttached(_In_ PCWSTR VhdPath);
 
     DiskMountResult MountDisk(
-        _In_ PCWSTR Disk, _In_ DiskType MountDiskType, _In_ ULONG PartitionIndex, _In_opt_ PCWSTR Name, _In_opt_ PCWSTR Type, _In_opt_ PCWSTR Options);
+        _In_ PCWSTR Disk, _In_ DiskType MountDiskType, _In_ ULONG PartitionIndex, _In_opt_ PCWSTR Name, _In_opt_ PCWSTR Type, _In_opt_ PCWSTR Options, bool Bare = false);
 
     enum MountFlags
     {
@@ -227,7 +227,7 @@ private:
 
     _Requires_lock_held_(m_lock)
     DiskMountResult MountDiskLockHeld(
-        _In_ PCWSTR Disk, _In_ DiskType MountDiskType, _In_ ULONG PartitionIndex, _In_opt_ PCWSTR Name, _In_opt_ PCWSTR Type, _In_opt_ PCWSTR Options);
+        _In_ PCWSTR Disk, _In_ DiskType MountDiskType, _In_ ULONG PartitionIndex, _In_opt_ PCWSTR Name, _In_opt_ PCWSTR Type, _In_opt_ PCWSTR Options, bool Bare = false);
 
     bool StartBlockDeviceProxy(_In_ PCWSTR Disk, _In_ ULONG PartitionIndex);
     void StopBlockDeviceProxy();

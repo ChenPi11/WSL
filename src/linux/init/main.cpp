@@ -2694,6 +2694,13 @@ Return Value:
                         LOG_ERROR("Failed to set up block device on vsock port {}", Message->BlockDevicePort);
                         return;
                     }
+
+                    if (Message->Flags & LxMiniInitMessageFlagBareMount)
+                    {
+                        LOG_INFO("Block device {} set up (bare mount)", Device);
+                        ReportMountStatus(Channel, 0, LxMiniMountStepDone);
+                        return;
+                    }
                 }
                 else
                 {
