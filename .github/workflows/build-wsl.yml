@@ -88,13 +88,10 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $gitversion = (Select-Xml -Path packages.config -XPath '/packages/package[@id="GitVersion.CommandLine"]/@version').Node.Value
-          $env:path = "$pwd/packages/GitVersion.CommandLine.$gitversion/tools;$env:path"
-          $commit = git rev-parse --short HEAD
           $date = Get-Date -Format "yyyyMMdd"
           $ver = "2.4.$date.0"
-          Write-Host "Package version: $ver"
-          echo "WSL_PACKAGE_VERSION=$ver" >> $env:GITHUB_OUTPUT
+          Write-Host "WSL_PACKAGE_VERSION=$ver"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "WSL_PACKAGE_VERSION=$ver"
 
       - name: CMake configure
         shell: pwsh
