@@ -1999,7 +1999,7 @@ bool WslCoreVm::StartBlockDeviceProxy(_In_ PCWSTR Disk, _In_ ULONG PartitionInde
         partitionPath = diskPath;
     }
 
-    LOG_INFO("Starting block device proxy for partition: {}", partitionPath);
+    WSL_LOG("BlockDeviceProxyStart");
 
     try
     {
@@ -2011,7 +2011,7 @@ bool WslCoreVm::StartBlockDeviceProxy(_In_ PCWSTR Disk, _In_ ULONG PartitionInde
     }
     catch (...)
     {
-        LOG_CAUGHT_EXCEPTION();
+        WSL_LOG("BlockDeviceProxyStartFailed");
         m_blockDeviceActive = false;
         return false;
     }

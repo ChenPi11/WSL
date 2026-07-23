@@ -78,10 +78,9 @@ std::string SetupBlockDevice(unsigned int VsockPort)
     }
 
     uint64_t deviceSize = Ntohll(sizeNBO);
-    uint32_t flags = ntohl(flagsNBO);
     uint32_t sectorSize = 512;
 
-    LOG_INFO("NBD device size: %lu bytes, flags: 0x%x", (unsigned long)deviceSize, flags);
+    LOG_INFO("NBD device size: %lu bytes, flags: 0x%x", (unsigned long)deviceSize, ntohl(flagsNBO));
 
     // Find a free NBD device
     int nbdFd = -1;
