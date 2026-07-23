@@ -95,13 +95,7 @@ jobs:
 
       - name: CMake configure
         shell: pwsh
-        run: |
-          cmake . --fresh `
-            -A ${{ inputs.platform }} `
-            -DCMAKE_BUILD_TYPE=${{ inputs.configuration }} `
-            -DCMAKE_SYSTEM_VERSION=10.0.26100.0 `
-            -DSKIP_PACKAGE_SIGNING=${{ inputs.skip_sign }} `
-            -DPACKAGE_VERSION=${{ steps.version.outputs.WSL_PACKAGE_VERSION }}
+        run: cmake . --fresh -A ${{ inputs.platform }} -DCMAKE_BUILD_TYPE=${{ inputs.configuration }} -DCMAKE_SYSTEM_VERSION=10.0.26100.0 -DSKIP_PACKAGE_SIGNING=${{ inputs.skip_sign }} -DPACKAGE_VERSION=${{ steps.version.outputs.WSL_PACKAGE_VERSION }}
 
       - name: Build primary targets
         shell: pwsh
