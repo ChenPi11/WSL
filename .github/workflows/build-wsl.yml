@@ -29,7 +29,7 @@ concurrency:
 jobs:
   build:
     name: Build WSL (${{ inputs.platform }}, ${{ inputs.configuration }})
-    runs-on: [self-hosted, windows, wsl-builder]
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
