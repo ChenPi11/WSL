@@ -168,8 +168,27 @@ bool PhysicalBlockDevice::Flush()
 
 void PhysicalBlockDevice::QueryDeviceSize()
 {
-    DISK_GEOMETRY_EX diskGeometry = {};
     DWORD bytesReturned = 0;
+
+    // Prefer partition info: IOCTL_DISK_GET_DRIVE_GEOMETRY_EX on a partition
+    // handle returns the full disk size, not the partition size.
+    PARTITION_INFORMATION_EX partInfo = {};
+    if (DeviceIoControl(
+            m_handle.get(),
+            IOCTL_DISK_GET_PARTITION_INFO_EX,
+            nullptr,
+            0,
+            &partInfo,
+            sizeof(partInfo),
+            &bytesReturned,
+            nullptr))
+    {
+        m_deviceSize = partInfo.PartitionLength.QuadPart;
+        // Sector size is not available from partition info; use default 512.
+        return;
+    }
+
+    DISK_GEOMETRY_EX diskGeometry = {};
     if (DeviceIoControl(
             m_handle.get(),
             IOCTL_DISK_GET_DRIVE_GEOMETRY_EX,
@@ -185,29 +204,10 @@ void PhysicalBlockDevice::QueryDeviceSize()
     }
     else
     {
-        // PARTITION_INFORMATION_EX does not include sector size, so use default.
-        // The primary path (IOCTL_DISK_GET_DRIVE_GEOMETRY_EX) above covers normal
-        // disk/partition devices. This fallback is for raw files or unusual setup.
-        PARTITION_INFORMATION_EX partInfo = {};
-        if (DeviceIoControl(
-                m_handle.get(),
-                IOCTL_DISK_GET_PARTITION_INFO_EX,
-                nullptr,
-                0,
-                &partInfo,
-                sizeof(partInfo),
-                &bytesReturned,
-                nullptr))
+        LARGE_INTEGER size;
+        if (GetFileSizeEx(m_handle.get(), &size))
         {
-            m_deviceSize = partInfo.PartitionLength.QuadPart;
-        }
-        else
-        {
-            LARGE_INTEGER size;
-            if (GetFileSizeEx(m_handle.get(), &size))
-            {
-                m_deviceSize = size.QuadPart;
-            }
+            m_deviceSize = size.QuadPart;
         }
     }
 }
