@@ -6,149 +6,17 @@
 
 #include <linux/nbd.h>
 #include <sys/ioctl.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring>
 #include <cstdio>
 #include <cstdint>
-#include <csignal>
 #include <arpa/inet.h>
 
 // Network-to-host for 64-bit values (x86 is LE, NBD is big-endian)
 static inline uint64_t Ntohll(uint64_t x) { return __builtin_bswap64(x); }
-
-namespace {
-
-#pragma pack(push, 1)
-struct NBDRequest
-{
-    uint32_t Magic;
-    uint16_t Flags;
-    uint16_t Type;
-    uint64_t Handle;
-    uint64_t Offset;
-    uint32_t Length;
-};
-
-struct NBDReply
-{
-    uint32_t Magic;
-    uint32_t Error;
-    uint64_t Handle;
-};
-#pragma pack(pop)
-
-static int ReadFd(int Fd, void* Buf, size_t Len)
-{
-    char* ptr = static_cast<char*>(Buf);
-    size_t remaining = Len;
-    while (remaining > 0)
-    {
-        int n = read(Fd, ptr, remaining);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) return -1;
-        ptr += n;
-        remaining -= n;
-    }
-    return 0;
-}
-
-static int WriteFd(int Fd, const void* Buf, size_t Len)
-{
-    const char* ptr = static_cast<const char*>(Buf);
-    size_t remaining = Len;
-    while (remaining > 0)
-    {
-        int n = write(Fd, ptr, remaining);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) return -1;
-        ptr += n;
-        remaining -= n;
-    }
-    return 0;
-}
-
-// Relay data from one fd to another
-static bool RelayData(int FromFd, int ToFd, uint32_t Length)
-{
-    char buffer[65536];
-    while (Length > 0)
-    {
-        uint32_t chunk = Length > sizeof(buffer) ? sizeof(buffer) : Length;
-        int n = read(FromFd, buffer, chunk);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) return false;
-        int remaining = n;
-        char* ptr = buffer;
-        while (remaining > 0)
-        {
-            int w = write(ToFd, ptr, remaining);
-            if (w < 0 && errno == EINTR) continue;
-            if (w <= 0) return false;
-            ptr += w;
-            remaining -= w;
-        }
-        Length -= n;
-    }
-    return true;
-}
-
-// NBD protocol bridge: relays NBD traffic between a UNIX socket (connected to
-// the kernel NBD module) and a vsock socket (connected to the Windows NBD server).
-// The kernel NBD driver only supports AF_UNIX and AF_INET sockets, not AF_VSOCK,
-// so this userspace bridge is required.
-static void NbdBridgeDaemon(int UnixFd, int VsockFd)
-{
-    // Ignore SIGPIPE so a failed write returns EPIPE instead of killing us.
-    signal(SIGPIPE, SIG_IGN);
-    // Also ignore SIGCHLD: the grandchild must not reap children (that's the
-    // parent init's job).
-    signal(SIGCHLD, SIG_IGN);
-
-    // The handshake was already consumed by SetupBlockDevice() before forking,
-    // so the vsock socket is positioned at the first NBD request/reply exchange.
-    // Proxy loop: forward NBD requests from kernel to Windows and replies back.
-    while (true)
-    {
-        // Read NBD request from kernel (via UNIX socket)
-        NBDRequest req;
-        if (ReadFd(UnixFd, &req, sizeof(req)) < 0) break;
-
-        // Forward request to Windows server
-        if (WriteFd(VsockFd, &req, sizeof(req)) < 0) break;
-
-        // For WRITE commands, the kernel sends data after the request
-        uint32_t type = ntohs(req.Type);
-        uint32_t length = ntohl(req.Length);
-        if (type == 1 && length > 0) // NBD_CMD_WRITE
-        {
-            if (!RelayData(UnixFd, VsockFd, length)) break;
-        }
-
-        // Read NBD reply from Windows server
-        NBDReply reply;
-        if (ReadFd(VsockFd, &reply, sizeof(reply)) < 0) break;
-
-        // Forward reply to kernel
-        if (WriteFd(UnixFd, &reply, sizeof(reply)) < 0) break;
-
-        // For READ commands, the server sends data after the reply
-        uint32_t error = ntohl(reply.Error);
-        if (type == 0 && error == 0 && length > 0) // NBD_CMD_READ
-        {
-            if (!RelayData(VsockFd, UnixFd, length)) break;
-        }
-
-        // NBD_CMD_DISC: Windows closed the connection
-        if (type == 2) break;
-    }
-}
-
-} // anonymous namespace
 
 std::string SetupBlockDevice(unsigned int VsockPort)
 {
@@ -165,7 +33,6 @@ std::string SetupBlockDevice(unsigned int VsockPort)
     }
 
     // Connect to the Windows NBD block device server over vsock.
-    // The Windows server immediately sends the old-style NBD handshake.
     wil::unique_fd vsockFd = UtilConnectVsock(VsockPort, true);
     if (!vsockFd)
     {
@@ -173,7 +40,10 @@ std::string SetupBlockDevice(unsigned int VsockPort)
         return {};
     }
 
-    // Read the NBD handshake to get device size and consume it from the stream.
+    // Read the NBD old-style handshake from the vsock connection.
+    // The handshake data is consumed here so the kernel NBD module
+    // (which does NOT read a handshake) gets a socket positioned at
+    // the first NBD request.
     uint64_t nbdMagic, cliservMagic, sizeNBO;
     uint32_t flagsNBO;
     char padding[124];
@@ -243,77 +113,36 @@ std::string SetupBlockDevice(unsigned int VsockPort)
     ioctl(nbdFd, NBD_SET_SIZE, deviceSize);
     ioctl(nbdFd, NBD_SET_BLKSIZE, sectorSize);
 
-    // Create a UNIX socket pair for the kernel NBD connection.
-    // The kernel NBD driver only supports AF_UNIX/AF_INET, not AF_VSOCK.
-    int sv[2];
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) < 0)
-    {
-        LOG_ERROR("socketpair failed: %s", strerror(errno));
-        close(nbdFd);
-        return {};
-    }
-
-    // Pass sv[0] to the kernel NBD module
-    if (ioctl(nbdFd, NBD_SET_SOCK, sv[0]) < 0)
+    // Pass the vsock socket directly to the kernel NBD module.
+    // NBD_SET_SOCK calls sockfd_lookup(fd) which accepts any socket
+    // type, including AF_VSOCK.
+    if (ioctl(nbdFd, NBD_SET_SOCK, vsockFd.get()) < 0)
     {
         LOG_ERROR("NBD_SET_SOCK failed: %s", strerror(errno));
-        close(sv[0]);
-        close(sv[1]);
         close(nbdFd);
         return {};
     }
 
-    // Fork child process to handle NBD_DO_IT (blocks until disconnect).
-    // The child then forks a grandchild to run the NBD bridge daemon
-    // (which translates between UNIX socket and vsock).
+    // Fork: child blocks on NBD_DO_IT, parent returns device path.
     pid_t pid = fork();
     if (pid < 0)
     {
         LOG_ERROR("fork failed: %s", strerror(errno));
         ioctl(nbdFd, NBD_CLEAR_SOCK);
-        close(sv[0]);
-        close(sv[1]);
         close(nbdFd);
         return {};
     }
 
     if (pid == 0)
     {
-        // Child process
-        close(sv[0]); // kernel uses sv[0], we use sv[1]
-
-        // Release vsock fd from unique_fd ownership (prevent double close)
-        int rawVsockFd = vsockFd.release();
-
-        // Fork grandchild for the NBD bridge daemon
-        pid_t bridgePid = fork();
-        if (bridgePid == 0)
-        {
-            // Grandchild: NBD bridge daemon
-            NbdBridgeDaemon(sv[1], rawVsockFd);
-            _exit(0);
-        }
-
-        if (bridgePid < 0)
-        {
-            LOG_ERROR("fork bridge failed: %s", strerror(errno));
-            close(sv[1]);
-            close(rawVsockFd);
-            _exit(1);
-        }
-
-        // Child: block on NBD_DO_IT
-        close(sv[1]);
-        close(rawVsockFd);
+        // Child: blocks until NBD connection terminates
         ioctl(nbdFd, NBD_DO_IT);
         ioctl(nbdFd, NBD_CLEAR_SOCK);
         close(nbdFd);
         _exit(0);
     }
 
-    // Parent: close our copies of the fds
-    close(sv[0]);
-    close(sv[1]);
+    // Parent: close our copies, return the device path.
     close(nbdFd);
     vsockFd.reset();
 
