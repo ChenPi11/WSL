@@ -9,13 +9,12 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <sys/poll.h>
+
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring>
 #include <cstdio>
 #include <cstdint>
-#include <cstdbool>
 #include <arpa/inet.h>
 
 // Network-to-host for 64-bit values (x86 is LE, NBD is big-endian)
