@@ -2698,7 +2698,7 @@ Return Value:
                     if (Message->Flags & LxMiniInitMessageFlagBareMount)
                     {
                         LOG_INFO("Block device {} set up (bare mount)", Device);
-                        ReportMountStatus(Channel, 0, LxMiniMountStepDone);
+                        Result = 0;
                         return;
                     }
                 }
