@@ -15,6 +15,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdint>
+#include <csignal>
 #include <arpa/inet.h>
 
 // Network-to-host for 64-bit values (x86 is LE, NBD is big-endian)
@@ -41,6 +42,36 @@ struct NBDReply
 };
 #pragma pack(pop)
 
+static int ReadFd(int Fd, void* Buf, size_t Len)
+{
+    char* ptr = static_cast<char*>(Buf);
+    size_t remaining = Len;
+    while (remaining > 0)
+    {
+        int n = read(Fd, ptr, remaining);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return -1;
+        ptr += n;
+        remaining -= n;
+    }
+    return 0;
+}
+
+static int WriteFd(int Fd, const void* Buf, size_t Len)
+{
+    const char* ptr = static_cast<const char*>(Buf);
+    size_t remaining = Len;
+    while (remaining > 0)
+    {
+        int n = write(Fd, ptr, remaining);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return -1;
+        ptr += n;
+        remaining -= n;
+    }
+    return 0;
+}
+
 // Relay data from one fd to another
 static bool RelayData(int FromFd, int ToFd, uint32_t Length)
 {
@@ -49,12 +80,14 @@ static bool RelayData(int FromFd, int ToFd, uint32_t Length)
     {
         uint32_t chunk = Length > sizeof(buffer) ? sizeof(buffer) : Length;
         int n = read(FromFd, buffer, chunk);
+        if (n < 0 && errno == EINTR) continue;
         if (n <= 0) return false;
         int remaining = n;
         char* ptr = buffer;
         while (remaining > 0)
         {
             int w = write(ToFd, ptr, remaining);
+            if (w < 0 && errno == EINTR) continue;
             if (w <= 0) return false;
             ptr += w;
             remaining -= w;
@@ -70,6 +103,12 @@ static bool RelayData(int FromFd, int ToFd, uint32_t Length)
 // so this userspace bridge is required.
 static void NbdBridgeDaemon(int UnixFd, int VsockFd)
 {
+    // Ignore SIGPIPE so a failed write returns EPIPE instead of killing us.
+    signal(SIGPIPE, SIG_IGN);
+    // Also ignore SIGCHLD: the grandchild must not reap children (that's the
+    // parent init's job).
+    signal(SIGCHLD, SIG_IGN);
+
     // The handshake was already consumed by SetupBlockDevice() before forking,
     // so the vsock socket is positioned at the first NBD request/reply exchange.
     // Proxy loop: forward NBD requests from kernel to Windows and replies back.
@@ -77,11 +116,10 @@ static void NbdBridgeDaemon(int UnixFd, int VsockFd)
     {
         // Read NBD request from kernel (via UNIX socket)
         NBDRequest req;
-        int n = read(UnixFd, &req, sizeof(req));
-        if (n <= 0) break;
+        if (ReadFd(UnixFd, &req, sizeof(req)) < 0) break;
 
         // Forward request to Windows server
-        if (write(VsockFd, &req, sizeof(req)) < 0) break;
+        if (WriteFd(VsockFd, &req, sizeof(req)) < 0) break;
 
         // For WRITE commands, the kernel sends data after the request
         uint32_t type = ntohs(req.Type);
@@ -93,10 +131,10 @@ static void NbdBridgeDaemon(int UnixFd, int VsockFd)
 
         // Read NBD reply from Windows server
         NBDReply reply;
-        if (read(VsockFd, &reply, sizeof(reply)) <= 0) break;
+        if (ReadFd(VsockFd, &reply, sizeof(reply)) < 0) break;
 
         // Forward reply to kernel
-        if (write(UnixFd, &reply, sizeof(reply)) < 0) break;
+        if (WriteFd(UnixFd, &reply, sizeof(reply)) < 0) break;
 
         // For READ commands, the server sends data after the reply
         uint32_t error = ntohl(reply.Error);
