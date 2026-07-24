@@ -70,21 +70,9 @@ static bool RelayData(int FromFd, int ToFd, uint32_t Length)
 // so this userspace bridge is required.
 static void NbdBridgeDaemon(int UnixFd, int VsockFd)
 {
-    // The Windows server sends the old-style NBD handshake on connect.
-    // Read and discard it (the kernel NBD module does NOT read a handshake).
-    // Size: magic(8) + cliserv(8) + size(8) + flags(4) + padding(124) = 152 bytes.
-    char handshake[152];
-    size_t remaining = sizeof(handshake);
-    char* ptr = handshake;
-    while (remaining > 0)
-    {
-        int n = read(VsockFd, ptr, remaining);
-        if (n <= 0) return;
-        ptr += n;
-        remaining -= n;
-    }
-
-    // Proxy loop: forward NBD requests from kernel to Windows and replies back
+    // The handshake was already consumed by SetupBlockDevice() before forking,
+    // so the vsock socket is positioned at the first NBD request/reply exchange.
+    // Proxy loop: forward NBD requests from kernel to Windows and replies back.
     while (true)
     {
         // Read NBD request from kernel (via UNIX socket)
